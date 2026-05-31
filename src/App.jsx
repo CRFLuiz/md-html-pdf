@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import html2pdf from 'html2pdf.js'
-import { PDFDocument } from 'pdf-lib'
+import { PDFDocument, rgb } from 'pdf-lib'
 import './App.css'
 
 const defaultMarkdown = `# Bem-vindo ao MD → HTML → PDF
@@ -194,21 +194,35 @@ function App() {
         html2canvas: {
           scale: 2,
           backgroundColor: bgColor,
+          useCORS: true,
           onclone: function(clonedDoc) {
             const preview = clonedDoc.getElementById('preview')
             if (preview) {
+              // Force preview to fill page
+              preview.style.width = '210mm'
+              preview.style.minHeight = '297mm'
+              preview.style.background = bgColor
+              preview.style.color = textColor
+              preview.style.margin = '0'
+              preview.style.padding = '24px'
+              preview.style.boxSizing = 'border-box'
+
               const style = clonedDoc.createElement('style')
               style.textContent = `
                 #preview {
                   background: ${bgColor} !important;
                   color: ${textColor} !important;
                   padding: 24px !important;
+                  margin: 0 !important;
                   min-height: 100% !important;
+                  width: 100% !important;
                 }
                 body {
                   background: ${bgColor} !important;
                   margin: 0 !important;
                   padding: 0 !important;
+                  width: 210mm !important;
+                  height: 297mm !important;
                 }
                 #preview * {
                   background-color: transparent !important;
@@ -226,7 +240,13 @@ function App() {
             }
           }
         },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        jsPDF: {
+          unit: 'mm',
+          format: [210, 297], // Exact A4 size
+          orientation: 'portrait',
+          hotfixes: ['img'],
+        },
+        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
       }
 
       // Generate PDF as blob
@@ -235,6 +255,25 @@ function App() {
 
       // Step 2: Load with pdf-lib
       const pdfDoc = await PDFDocument.load(pdfBytes)
+
+      // Force background color on all pages
+      const pages = pdfDoc.getPages()
+      pages.forEach(page => {
+        const { width, height } = page.getSize()
+        // Draw background rectangle covering entire page
+        page.drawRectangle({
+          x: 0,
+          y: 0,
+          width: width,
+          height: height,
+          color: rgb(
+            parseInt(bgColor.slice(1, 3), 16) / 255,
+            parseInt(bgColor.slice(3, 5), 16) / 255,
+            parseInt(bgColor.slice(5, 7), 16) / 255
+          ),
+          borderWidth: 0,
+        })
+      })
 
       // Step 3: Process header
       if (headerFile) {
