@@ -188,7 +188,7 @@ function App() {
 
       // Step 1: Generate PDF with html2pdf.js using custom colors
       const opt = {
-        margin: headerFile ? 30 : 0,
+        margin: 0,
         filename: 'temp.pdf',
         image: { type: 'jpeg', quality: 0.98 },
         html2canvas: {
@@ -262,13 +262,13 @@ function App() {
           const pages = pdfDoc.getPages()
           pages.forEach(page => {
             const { width, height } = page.getSize()
-            const targetWidth = width - 20
+            const targetWidth = width
             const aspectRatio = headerImage.width / headerImage.height
             const targetHeight = targetWidth / aspectRatio
 
             page.drawImage(headerImage, {
-              x: 10,
-              y: height - 10 - targetHeight,
+              x: 0,
+              y: height - targetHeight,
               width: targetWidth,
               height: targetHeight,
             })
@@ -302,13 +302,13 @@ function App() {
           const pages = pdfDoc.getPages()
           pages.forEach(page => {
             const { width } = page.getSize()
-            const targetWidth = width - 20
+            const targetWidth = width
             const aspectRatio = footerImage.width / footerImage.height
             const targetHeight = targetWidth / aspectRatio
 
             page.drawImage(footerImage, {
-              x: 10,
-              y: 10,
+              x: 0,
+              y: 0,
               width: targetWidth,
               height: targetHeight,
             })
