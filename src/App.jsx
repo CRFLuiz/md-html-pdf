@@ -251,13 +251,17 @@ function App() {
         if (headerImage) {
           const pages = pdfDoc.getPages()
           pages.forEach(page => {
-            const { width } = page.getSize()
-            const scale = Math.min((width - 20) / headerImage.width, 40 / headerImage.height)
+            const { width, height } = page.getSize()
+            // Stretch to full page width (with 10px margins)
+            const targetWidth = width - 20
+            const aspectRatio = headerImage.width / headerImage.height
+            const targetHeight = targetWidth / aspectRatio
+            
             page.drawImage(headerImage, {
               x: 10,
-              y: page.getHeight() - 10 - headerImage.height * scale,
-              width: headerImage.width * scale,
-              height: headerImage.height * scale,
+              y: height - 10 - targetHeight,
+              width: targetWidth,
+              height: targetHeight,
             })
           })
         }
@@ -289,12 +293,16 @@ function App() {
           const pages = pdfDoc.getPages()
           pages.forEach(page => {
             const { width } = page.getSize()
-            const scale = Math.min((width - 20) / footerImage.width, 40 / footerImage.height)
+            // Stretch to full page width (with 10px margins)
+            const targetWidth = width - 20
+            const aspectRatio = footerImage.width / footerImage.height
+            const targetHeight = targetWidth / aspectRatio
+            
             page.drawImage(footerImage, {
               x: 10,
               y: 10,
-              width: footerImage.width * scale,
-              height: footerImage.height * scale,
+              width: targetWidth,
+              height: targetHeight,
             })
           })
         }
