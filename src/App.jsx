@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Download, Sun, Moon, Loader2 } from 'lucide-react'
+import { Download, Sun, Moon, Loader2, Upload, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import html2pdf from 'html2pdf.js'
+import { PDFDocument } from 'pdf-lib'
 import './App.css'
 
 const defaultMarkdown = `# Bem-vindo ao MD → HTML → PDF
@@ -57,6 +58,10 @@ function App() {
   })
   const [toasts, setToasts] = useState([])
   const [rendering, setRendering] = useState(false)
+  const [headerFile, setHeaderFile] = useState(null)
+  const [footerFile, setFooterFile] = useState(null)
+  const [headerPreview, setHeaderPreview] = useState('')
+  const [footerPreview, setFooterPreview] = useState('')
 
   // Apply theme
   useEffect(() => {
@@ -92,6 +97,80 @@ function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id))
   }, [])
 
+  // File upload handlers
+  const handleHeaderUpload = (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+
+    if (!file.type.match(/image\/(png|jpeg)|text\/html/) || file.size > 2 * 1024 * 1024) {
+      addToast('error', 'Arquivo inválido. Use PNG, JPG ou HTML (máx 2MB)')
+      return
+    }
+
+    setHeaderFile(file)
+    if (file.type.includes('image')) {
+      const reader = new FileReader()
+      reader.onload = (e) => setHeaderPreview(e.target.result)
+      reader.readAsDataURL(file)
+    } else {
+      setHeaderPreview(file.name)
+    }
+  }
+
+  const handleFooterUpload = (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+
+    if (!file.type.match(/image\/(png|jpeg)|text\/html/) || file.size > 2 * 1024 * 1024) {
+      addToast('error', 'Arquivo inválido. Use PNG, JPG ou HTML (máx 2MB)')
+      return
+    }
+
+    setFooterFile(file)
+    if (file.type.includes('image')) {
+      const reader = new FileReader()
+      reader.onload = (e) => setFooterPreview(e.target.result)
+      reader.readAsDataURL(file)
+    } else {
+      setFooterPreview(file.name)
+    }
+  }
+
+  const removeHeader = () => {
+    setHeaderFile(null)
+    setHeaderPreview('')
+  }
+
+  const removeFooter = () => {
+    setFooterFile(null)
+    setFooterPreview('')
+  }
+
+  const readFileAsArrayBuffer = (file) => {
+    return new Promise((resolve) => {
+      const reader = new FileReader()
+      reader.onloadend = () => resolve(reader.result)
+      reader.readAsArrayBuffer(file)
+    })
+  }
+
+  const renderHtmlToImage = async (htmlContent) => {
+    const tempDiv = document.createElement('div')
+    tempDiv.innerHTML = htmlContent
+    tempDiv.style.position = 'absolute'
+    tempDiv.style.left = '-9999px'
+    tempDiv.style.top = '0'
+    tempDiv.style.width = '210mm' // A4 width
+    tempDiv.style.padding = '10px'
+    tempDiv.style.background = '#ffffff'
+    document.body.appendChild(tempDiv)
+
+    const canvas = await html2canvas(tempDiv, { scale: 2 })
+    document.body.removeChild(tempDiv)
+
+    return canvas.toDataURL('image/png').split(',')[1]
+  }
+
   const toggleTheme = () => {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))
   }
@@ -103,9 +182,10 @@ function App() {
       const element = document.getElementById('preview')
       if (!element) throw new Error('Preview element not found')
 
+      // Step 1: Generate PDF with html2pdf.js
       const opt = {
-        margin: 10,
-        filename: 'documento.pdf',
+        margin: headerFile ? 30 : 10,
+        filename: 'temp.pdf',
         image: { type: 'jpeg', quality: 0.98 },
         html2canvas: {
           scale: 2,
@@ -113,7 +193,6 @@ function App() {
           onclone: function(clonedDoc) {
             const preview = clonedDoc.getElementById('preview')
             if (preview) {
-              // Injeta CSS para forçar cores no documento clonado
               const style = clonedDoc.createElement('style')
               style.textContent = `
                 #preview {
@@ -137,12 +216,103 @@ function App() {
             }
           }
         },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
       }
 
-      await html2pdf().set(opt).from(element).save()
+      // Generate PDF as blob
+      const pdfBlob = await html2pdf().set(opt).from(element).output('blob')
+      const pdfBytes = await pdfBlob.arrayBuffer()
+
+      // Step 2: Load with pdf-lib
+      const pdfDoc = await PDFDocument.load(pdfBytes)
+
+      // Step 3: Process header
+      if (headerFile) {
+        let headerImage
+
+        if (headerFile.type.includes('image')) {
+          const headerBytes = await readFileAsArrayBuffer(headerFile)
+          if (headerFile.type.includes('png')) {
+            headerImage = await pdfDoc.embedPng(headerBytes)
+          } else {
+            headerImage = await pdfDoc.embedJpg(headerBytes)
+          }
+        } else if (headerFile.name.endsWith('.html')) {
+          const htmlContent = await headerFile.text()
+          const base64 = await renderHtmlToImage(htmlContent)
+          const binaryString = atob(base64)
+          const bytes = new Uint8Array(binaryString.length)
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i)
+          }
+          headerImage = await pdfDoc.embedPng(bytes)
+        }
+
+        if (headerImage) {
+          const pages = pdfDoc.getPages()
+          pages.forEach(page => {
+            const { width } = page.getSize()
+            const scale = Math.min((width - 20) / headerImage.width, 40 / headerImage.height)
+            page.drawImage(headerImage, {
+              x: 10,
+              y: page.getHeight() - 10 - headerImage.height * scale,
+              width: headerImage.width * scale,
+              height: headerImage.height * scale,
+            })
+          })
+        }
+      }
+
+      // Step 4: Process footer
+      if (footerFile) {
+        let footerImage
+
+        if (footerFile.type.includes('image')) {
+          const footerBytes = await readFileAsArrayBuffer(footerFile)
+          if (footerFile.type.includes('png')) {
+            footerImage = await pdfDoc.embedPng(footerBytes)
+          } else {
+            footerImage = await pdfDoc.embedJpg(footerBytes)
+          }
+        } else if (footerFile.name.endsWith('.html')) {
+          const htmlContent = await footerFile.text()
+          const base64 = await renderHtmlToImage(htmlContent)
+          const binaryString = atob(base64)
+          const bytes = new Uint8Array(binaryString.length)
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i)
+          }
+          footerImage = await pdfDoc.embedPng(bytes)
+        }
+
+        if (footerImage) {
+          const pages = pdfDoc.getPages()
+          pages.forEach(page => {
+            const { width } = page.getSize()
+            const scale = Math.min((width - 20) / footerImage.width, 40 / footerImage.height)
+            page.drawImage(footerImage, {
+              x: 10,
+              y: 10,
+              width: footerImage.width * scale,
+              height: footerImage.height * scale,
+            })
+          })
+        }
+      }
+
+      // Step 5: Save and download
+      const modifiedPdfBytes = await pdfDoc.save()
+      const blob = new Blob([modifiedPdfBytes], { type: 'application/pdf' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'documento.pdf'
+      a.click()
+      URL.revokeObjectURL(url)
+
       addToast('success', 'PDF exportado com sucesso!')
     } catch (error) {
+      console.error('Erro ao exportar PDF:', error)
       addToast('error', 'Falha ao exportar PDF. Tente novamente.')
     } finally {
       setExporting(false)
@@ -217,6 +387,63 @@ function App() {
                 {deferredMarkdown}
               </ReactMarkdown>
             </article>
+          </div>
+        </div>
+
+        {/* Upload Section for Header/Footer */}
+        <div className="upload-section">
+          <div className="upload-group">
+            <label className="upload-label">Header (opcional)</label>
+            <div className="upload-controls">
+              <label className="upload-btn">
+                <Upload size={14} />
+                <span>{headerFile ? headerFile.name : 'Enviar imagem ou HTML'}</span>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,text/html"
+                  onChange={handleHeaderUpload}
+                  style={{ display: 'none' }}
+                />
+              </label>
+              {headerPreview && headerFile?.type.includes('image') && (
+                <img src={headerPreview} alt="Header preview" className="upload-preview" />
+              )}
+              {headerFile && !headerFile.type.includes('image') && (
+                <span className="upload-filename">{headerPreview}</span>
+              )}
+              {headerFile && (
+                <button className="upload-remove" onClick={removeHeader} aria-label="Remover header">
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="upload-group">
+            <label className="upload-label">Footer (opcional)</label>
+            <div className="upload-controls">
+              <label className="upload-btn">
+                <Upload size={14} />
+                <span>{footerFile ? footerFile.name : 'Enviar imagem ou HTML'}</span>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,text/html"
+                  onChange={handleFooterUpload}
+                  style={{ display: 'none' }}
+                />
+              </label>
+              {footerPreview && footerFile?.type.includes('image') && (
+                <img src={footerPreview} alt="Footer preview" className="upload-preview" />
+              )}
+              {footerFile && !footerFile.type.includes('image') && (
+                <span className="upload-filename">{footerPreview}</span>
+              )}
+              {footerFile && (
+                <button className="upload-remove" onClick={removeFooter} aria-label="Remover footer">
+                  <X size={14} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
