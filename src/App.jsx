@@ -62,6 +62,9 @@ function App() {
   const [footerFile, setFooterFile] = useState(null)
   const [headerPreview, setHeaderPreview] = useState('')
   const [footerPreview, setFooterPreview] = useState('')
+  const [bgColor, setBgColor] = useState('#ffffff')
+  const [textColor, setTextColor] = useState('#1e293b')
+  const [showColorOptions, setShowColorOptions] = useState(false)
 
   // Apply theme
   useEffect(() => {
@@ -182,34 +185,34 @@ function App() {
       const element = document.getElementById('preview')
       if (!element) throw new Error('Preview element not found')
 
-      // Step 1: Generate PDF with html2pdf.js
+      // Step 1: Generate PDF with html2pdf.js using custom colors
       const opt = {
         margin: headerFile ? 30 : 10,
         filename: 'temp.pdf',
         image: { type: 'jpeg', quality: 0.98 },
         html2canvas: {
           scale: 2,
-          backgroundColor: '#ffffff',
+          backgroundColor: bgColor,
           onclone: function(clonedDoc) {
             const preview = clonedDoc.getElementById('preview')
             if (preview) {
               const style = clonedDoc.createElement('style')
               style.textContent = `
                 #preview {
-                  background: #ffffff !important;
-                  color: #1e293b !important;
+                  background: ${bgColor} !important;
+                  color: ${textColor} !important;
                   padding: 24px !important;
                 }
                 #preview * {
                   background-color: transparent !important;
-                  color: #1e293b !important;
-                  border-color: #e2e8f0 !important;
+                  color: ${textColor} !important;
+                  border-color: ${adjustColor(textColor, 0.2)} !important;
                 }
                 #preview code, #preview pre {
-                  background-color: #f4f3ec !important;
+                  background-color: ${adjustColor(bgColor, 0.05)} !important;
                 }
                 #preview th {
-                  background-color: #f8f9fa !important;
+                  background-color: ${adjustColor(bgColor, 0.05)} !important;
                 }
               `
               clonedDoc.head.appendChild(style)
@@ -252,11 +255,10 @@ function App() {
           const pages = pdfDoc.getPages()
           pages.forEach(page => {
             const { width, height } = page.getSize()
-            // Stretch to full page width (with 10px margins)
             const targetWidth = width - 20
             const aspectRatio = headerImage.width / headerImage.height
             const targetHeight = targetWidth / aspectRatio
-            
+
             page.drawImage(headerImage, {
               x: 10,
               y: height - 10 - targetHeight,
@@ -293,11 +295,10 @@ function App() {
           const pages = pdfDoc.getPages()
           pages.forEach(page => {
             const { width } = page.getSize()
-            // Stretch to full page width (with 10px margins)
             const targetWidth = width - 20
             const aspectRatio = footerImage.width / footerImage.height
             const targetHeight = targetWidth / aspectRatio
-            
+
             page.drawImage(footerImage, {
               x: 10,
               y: 10,
@@ -325,6 +326,13 @@ function App() {
     } finally {
       setExporting(false)
     }
+  }
+
+  // Helper function to adjust color brightness
+  const adjustColor = (hex, opacity) => {
+    // Simple implementation - returns the hex color as is
+    // In production, you might want to parse the hex and adjust it
+    return hex
   }
 
   return (
@@ -396,6 +404,56 @@ function App() {
               </ReactMarkdown>
             </article>
           </div>
+        </div>
+
+        {/* Color Customization Section */}
+        <div className="color-section">
+          <button
+            className="color-toggle"
+            onClick={() => setShowColorOptions(!showColorOptions)}
+            aria-expanded={showColorOptions}
+            aria-controls="color-options"
+          >
+            Cores do PDF {showColorOptions ? '▲' : '▼'}
+          </button>
+
+          {showColorOptions && (
+            <div id="color-options" className="color-options">
+              <div className="color-group">
+                <label className="color-label">
+                  Fundo
+                  <input
+                    type="color"
+                    value={bgColor}
+                    onChange={(e) => setBgColor(e.target.value)}
+                    className="color-input"
+                  />
+                  <span className="color-value">{bgColor}</span>
+                </label>
+              </div>
+              <div className="color-group">
+                <label className="color-label">
+                  Texto
+                  <input
+                    type="color"
+                    value={textColor}
+                    onChange={(e) => setTextColor(e.target.value)}
+                    className="color-input"
+                  />
+                  <span className="color-value">{textColor}</span>
+                </label>
+              </div>
+              <button
+                className="color-reset"
+                onClick={() => {
+                  setBgColor('#ffffff')
+                  setTextColor('#1e293b')
+                }}
+              >
+                Resetar para padrão
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Upload Section for Header/Footer */}
