@@ -165,7 +165,8 @@ function App() {
     tempDiv.style.top = '0'
     tempDiv.style.width = '210mm' // A4 width
     tempDiv.style.padding = '10px'
-    tempDiv.style.background = '#ffffff'
+    tempDiv.style.background = bgColor
+    tempDiv.style.color = textColor
     document.body.appendChild(tempDiv)
 
     const canvas = await html2canvas(tempDiv, { scale: 2 })
@@ -187,7 +188,7 @@ function App() {
 
       // Step 1: Generate PDF with html2pdf.js using custom colors
       const opt = {
-        margin: headerFile ? 30 : 10,
+        margin: headerFile ? 30 : 0,
         filename: 'temp.pdf',
         image: { type: 'jpeg', quality: 0.98 },
         html2canvas: {
@@ -202,17 +203,23 @@ function App() {
                   background: ${bgColor} !important;
                   color: ${textColor} !important;
                   padding: 24px !important;
+                  min-height: 100% !important;
+                }
+                body {
+                  background: ${bgColor} !important;
+                  margin: 0 !important;
+                  padding: 0 !important;
                 }
                 #preview * {
                   background-color: transparent !important;
                   color: ${textColor} !important;
-                  border-color: ${adjustColor(textColor, 0.2)} !important;
+                  border-color: ${textColor}20 !important;
                 }
                 #preview code, #preview pre {
-                  background-color: ${adjustColor(bgColor, 0.05)} !important;
+                  background-color: ${bgColor}10 !important;
                 }
                 #preview th {
-                  background-color: ${adjustColor(bgColor, 0.05)} !important;
+                  background-color: ${bgColor}10 !important;
                 }
               `
               clonedDoc.head.appendChild(style)
