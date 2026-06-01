@@ -186,7 +186,7 @@ function App() {
       const element = document.getElementById('preview')
       if (!element) throw new Error('Preview element not found')
 
-      // Step 1: Generate PDF with html2pdf.js using custom colors
+      // Step 1: Generate PDF with html2pdf.js - simple approach
       const opt = {
         margin: 0,
         filename: 'temp.pdf',
@@ -194,122 +194,68 @@ function App() {
         html2canvas: {
           scale: 2,
           backgroundColor: bgColor,
-          useCORS: true,
-          onclone: function(clonedDoc) {
-            const preview = clonedDoc.getElementById('preview')
-            if (preview) {
-              // Force preview to fill page
-              preview.style.width = '210mm'
-              preview.style.minHeight = '297mm'
-              preview.style.background = bgColor
-              preview.style.color = textColor
-              preview.style.margin = '0'
-              preview.style.padding = '24px'
-              preview.style.boxSizing = 'border-box'
-
-              const style = clonedDoc.createElement('style')
-              style.textContent = `
-                #preview {
-                  background: ${bgColor} !important;
-                  color: ${textColor} !important;
-                  padding: 24px !important;
-                  margin: 0 !important;
-                  min-height: 100% !important;
-                  width: 100% !important;
-                }
-                body {
-                  background: ${bgColor} !important;
-                  margin: 0 !important;
-                  padding: 0 !important;
-                  width: 210mm !important;
-                  height: 297mm !important;
-                }
-                #preview * {
-                  background-color: transparent !important;
-                  color: ${textColor} !important;
-                  border-color: ${textColor}20 !important;
-                }
-                #preview code, #preview pre {
-                  background-color: ${bgColor}10 !important;
-                }
-                #preview th {
-                  background-color: ${bgColor}10 !important;
-                }
-              `
-              clonedDoc.head.appendChild(style)
-            }
-          }
         },
         jsPDF: {
           unit: 'mm',
-          format: [210, 297], // Exact A4 size
+          format: [210, 297],
           orientation: 'portrait',
-          hotfixes: ['img'],
         },
-        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
       }
 
       // Generate PDF as blob
       const pdfBlob = await html2pdf().set(opt).from(element).output('blob')
       const pdfBytes = await pdfBlob.arrayBuffer()
 
-      // Step 2: Load with pdf-lib
-      const pdfDoc = await PDFDocument.load(pdfBytes)
+      // Step 2: Load with pdf-lib (only if we have header/footer)
+      if (!headerFile && !footerFile) {
+        // No header/footer - download directly
+        const url = URL.createObjectURL(pdfBlob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = 'documento.pdf'
+        a.click()
+        URL.revokeObjectURL(url)
+        addToast('success', 'PDF exportado com sucesso!')
+        setExporting(false)
+        return
+      }
 
-      // Force background color on all pages
-      const pages = pdfDoc.getPages()
-      pages.forEach(page => {
-        const { width, height } = page.getSize()
-        // Draw background rectangle covering entire page
-        page.drawRectangle({
-          x: 0,
-          y: 0,
-          width: width,
-          height: height,
-          color: rgb(
-            parseInt(bgColor.slice(1, 3), 16) / 255,
-            parseInt(bgColor.slice(3, 5), 16) / 255,
-            parseInt(bgColor.slice(5, 7), 16) / 255
-          ),
-          borderWidth: 0,
-        })
-      })
+      const pdfDoc = await PDFDocument.load(pdfBytes)
 
       // Step 3: Process header
       if (headerFile) {
         let headerImage
-
-        if (headerFile.type.includes('image')) {
-          const headerBytes = await readFileAsArrayBuffer(headerFile)
+        const headerBytes = await readFileAsArrayBuffer(headerFile)
+        
+        try {
           if (headerFile.type.includes('png')) {
             headerImage = await pdfDoc.embedPng(headerBytes)
-          } else {
+          } else if (headerFile.type.includes('jpeg')) {
             headerImage = await pdfDoc.embedJpg(headerBytes)
+          } else if (headerFile.name.endsWith('.html')) {
+            const htmlContent = await headerFile.text()
+            const base64 = await renderHtmlToImage(htmlContent)
+            const binaryString = atob(base64)
+            const bytes = new Uint8Array(binaryString.length)
+            for (let i = 0; i < binaryString.length; i++) {
+              bytes[i] = binaryString.charCodeAt(i)
+            }
+            headerImage = await pdfDoc.embedPng(bytes)
           }
-        } else if (headerFile.name.endsWith('.html')) {
-          const htmlContent = await headerFile.text()
-          const base64 = await renderHtmlToImage(htmlContent)
-          const binaryString = atob(base64)
-          const bytes = new Uint8Array(binaryString.length)
-          for (let i = 0; i < binaryString.length; i++) {
-            bytes[i] = binaryString.charCodeAt(i)
-          }
-          headerImage = await pdfDoc.embedPng(bytes)
+        } catch (e) {
+          console.error('Error processing header:', e)
         }
 
         if (headerImage) {
           const pages = pdfDoc.getPages()
           pages.forEach(page => {
             const { width, height } = page.getSize()
-            const targetWidth = width
-            const aspectRatio = headerImage.width / headerImage.height
-            const targetHeight = targetWidth / aspectRatio
-
+            const scale = (width - 20) / headerImage.width
             page.drawImage(headerImage, {
-              x: 0,
-              y: height - targetHeight,
-              width: targetWidth,
-              height: targetHeight,
+              x: 10,
+              y: height - (headerImage.height * scale) - 10,
+              width: headerImage.width * scale,
+              height: headerImage.height * scale,
             })
           })
         }
@@ -318,38 +264,37 @@ function App() {
       // Step 4: Process footer
       if (footerFile) {
         let footerImage
-
-        if (footerFile.type.includes('image')) {
-          const footerBytes = await readFileAsArrayBuffer(footerFile)
+        const footerBytes = await readFileAsArrayBuffer(footerFile)
+        
+        try {
           if (footerFile.type.includes('png')) {
             footerImage = await pdfDoc.embedPng(footerBytes)
-          } else {
+          } else if (footerFile.type.includes('jpeg')) {
             footerImage = await pdfDoc.embedJpg(footerBytes)
+          } else if (footerFile.name.endsWith('.html')) {
+            const htmlContent = await footerFile.text()
+            const base64 = await renderHtmlToImage(htmlContent)
+            const binaryString = atob(base64)
+            const bytes = new Uint8Array(binaryString.length)
+            for (let i = 0; i < binaryString.length; i++) {
+              bytes[i] = binaryString.charCodeAt(i)
+            }
+            footerImage = await pdfDoc.embedPng(bytes)
           }
-        } else if (footerFile.name.endsWith('.html')) {
-          const htmlContent = await footerFile.text()
-          const base64 = await renderHtmlToImage(htmlContent)
-          const binaryString = atob(base64)
-          const bytes = new Uint8Array(binaryString.length)
-          for (let i = 0; i < binaryString.length; i++) {
-            bytes[i] = binaryString.charCodeAt(i)
-          }
-          footerImage = await pdfDoc.embedPng(bytes)
+        } catch (e) {
+          console.error('Error processing footer:', e)
         }
 
         if (footerImage) {
           const pages = pdfDoc.getPages()
           pages.forEach(page => {
             const { width } = page.getSize()
-            const targetWidth = width
-            const aspectRatio = footerImage.width / footerImage.height
-            const targetHeight = targetWidth / aspectRatio
-
+            const scale = (width - 20) / footerImage.width
             page.drawImage(footerImage, {
-              x: 0,
-              y: 0,
-              width: targetWidth,
-              height: targetHeight,
+              x: 10,
+              y: 10,
+              width: footerImage.width * scale,
+              height: footerImage.height * scale,
             })
           })
         }
