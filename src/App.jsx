@@ -186,7 +186,36 @@ function App() {
       const element = document.getElementById('preview')
       if (!element) throw new Error('Preview element not found')
 
-      // Step 1: Generate PDF with html2pdf.js - simple approach
+      // Save original styles
+      const originalStyles = {
+        background: element.style.background,
+        color: element.style.color,
+        padding: element.style.padding,
+        margin: element.style.margin,
+      }
+      const originalChildStyles = []
+      const allChildren = element.querySelectorAll('*')
+      
+      // Force custom colors on actual element
+      element.style.background = bgColor
+      element.style.color = textColor
+      element.style.padding = '24px'
+      element.style.margin = '0'
+      
+      // Force styles on all children
+      allChildren.forEach(el => {
+        originalChildStyles.push({
+          el,
+          background: el.style.background,
+          color: el.style.color,
+          borderColor: el.style.borderColor,
+        })
+        el.style.background = 'transparent'
+        el.style.color = textColor
+        el.style.borderColor = textColor
+      })
+
+      // Generate PDF with html2pdf
       const opt = {
         margin: 0,
         filename: 'temp.pdf',
@@ -202,13 +231,22 @@ function App() {
         },
       }
 
-      // Generate PDF as blob
       const pdfBlob = await html2pdf().set(opt).from(element).output('blob')
       const pdfBytes = await pdfBlob.arrayBuffer()
 
-      // Step 2: Load with pdf-lib (only if we have header/footer)
+      // Restore original styles
+      element.style.background = originalStyles.background
+      element.style.color = originalStyles.color
+      element.style.padding = originalStyles.padding
+      element.style.margin = originalStyles.margin
+      originalChildStyles.forEach(({ el, background, color, borderColor }) => {
+        el.style.background = background
+        el.style.color = color
+        el.style.borderColor = borderColor
+      })
+
+      // If no header/footer, download directly
       if (!headerFile && !footerFile) {
-        // No header/footer - download directly
         const url = URL.createObjectURL(pdfBlob)
         const a = document.createElement('a')
         a.href = url
@@ -220,30 +258,27 @@ function App() {
         return
       }
 
+      // Process with pdf-lib for header/footer
       const pdfDoc = await PDFDocument.load(pdfBytes)
 
-      // Step 3: Process header
+      // Process header
       if (headerFile) {
         let headerImage
         const headerBytes = await readFileAsArrayBuffer(headerFile)
         
-        try {
-          if (headerFile.type.includes('png')) {
-            headerImage = await pdfDoc.embedPng(headerBytes)
-          } else if (headerFile.type.includes('jpeg')) {
-            headerImage = await pdfDoc.embedJpg(headerBytes)
-          } else if (headerFile.name.endsWith('.html')) {
-            const htmlContent = await headerFile.text()
-            const base64 = await renderHtmlToImage(htmlContent)
-            const binaryString = atob(base64)
-            const bytes = new Uint8Array(binaryString.length)
-            for (let i = 0; i < binaryString.length; i++) {
-              bytes[i] = binaryString.charCodeAt(i)
-            }
-            headerImage = await pdfDoc.embedPng(bytes)
+        if (headerFile.type.includes('png')) {
+          headerImage = await pdfDoc.embedPng(headerBytes)
+        } else if (headerFile.type.includes('jpeg')) {
+          headerImage = await pdfDoc.embedJpg(headerBytes)
+        } else if (headerFile.name.endsWith('.html')) {
+          const htmlContent = await headerFile.text()
+          const base64 = await renderHtmlToImage(htmlContent)
+          const binaryString = atob(base64)
+          const bytes = new Uint8Array(binaryString.length)
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i)
           }
-        } catch (e) {
-          console.error('Error processing header:', e)
+          headerImage = await pdfDoc.embedPng(bytes)
         }
 
         if (headerImage) {
@@ -261,28 +296,24 @@ function App() {
         }
       }
 
-      // Step 4: Process footer
+      // Process footer
       if (footerFile) {
         let footerImage
         const footerBytes = await readFileAsArrayBuffer(footerFile)
         
-        try {
-          if (footerFile.type.includes('png')) {
-            footerImage = await pdfDoc.embedPng(footerBytes)
-          } else if (footerFile.type.includes('jpeg')) {
-            footerImage = await pdfDoc.embedJpg(footerBytes)
-          } else if (footerFile.name.endsWith('.html')) {
-            const htmlContent = await footerFile.text()
-            const base64 = await renderHtmlToImage(htmlContent)
-            const binaryString = atob(base64)
-            const bytes = new Uint8Array(binaryString.length)
-            for (let i = 0; i < binaryString.length; i++) {
-              bytes[i] = binaryString.charCodeAt(i)
-            }
-            footerImage = await pdfDoc.embedPng(bytes)
+        if (footerFile.type.includes('png')) {
+          footerImage = await pdfDoc.embedPng(footerBytes)
+        } else if (footerFile.type.includes('jpeg')) {
+          footerImage = await pdfDoc.embedJpg(footerBytes)
+        } else if (footerFile.name.endsWith('.html')) {
+          const htmlContent = await footerFile.text()
+          const base64 = await renderHtmlToImage(htmlContent)
+          const binaryString = atob(base64)
+          const bytes = new Uint8Array(binaryString.length)
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i)
           }
-        } catch (e) {
-          console.error('Error processing footer:', e)
+          footerImage = await pdfDoc.embedPng(bytes)
         }
 
         if (footerImage) {
@@ -300,7 +331,7 @@ function App() {
         }
       }
 
-      // Step 5: Save and download
+      // Save and download
       const modifiedPdfBytes = await pdfDoc.save()
       const blob = new Blob([modifiedPdfBytes], { type: 'application/pdf' })
       const url = URL.createObjectURL(blob)
@@ -319,7 +350,7 @@ function App() {
     }
   }
 
-  // Helper function to adjust color brightness
+   // Helper function to adjust color brightness
   const adjustColor = (hex, opacity) => {
     // Simple implementation - returns the hex color as is
     // In production, you might want to parse the hex and adjust it
